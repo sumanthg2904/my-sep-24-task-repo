@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_CREDENTIALS = credentials('sumanth2904') // Reference your credentials ID
+        DOCKER_IMAGE = 'sumanth2904/hms-web-1'
+        CONTAINER_NAME = 'hms-web-container-2' // Name your container for easy reference
+        BASE_PORT = 8300 // Starting port number
+    }
+
+    stages {
+        stage('Git Cloning') {
+            steps {
+                git credentialsId: 'sumanthg2904', url: 'https://github.com/sumanthg2904/my-sep-24-task-repo.git'
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                script {
+                    sh 'echo "$DOCKER_CREDENTIALS_PSW" | docker login -u "$DOCKER_CREDENTIALS_USR" --password-stdin'
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh "docker build -t ${DOCKER_IMAGE} ."
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    sh "docker push ${DOCKER_IMAGE}"
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                script {
+                    // Stop and remove the existing container if it exists
+                    sh """
+                        if [ \$(docker ps -q -f name=${CONTAINER_NAME}) ]; then
+                            docker stop ${CONTAINER_NAME}
+                            docker rm ${CONTAINER_NAME}
+                        fi
+                    """
+                    
+                    // Check if the base port is available
+                    def port = BASE_PORT
+                    while (true) {
+                        // Check if the port is in use
+                        def isPortUsed = sh(script: "lsof -i :${port}", returnStatus: true) == 0
+
+                        if (!isPortUsed) {
+                            break
+                        }
+                        port++
+                    }
+                    
+                    // Run the new container on the available port
+                    sh "docker run -d --name ${CONTAINER_NAME} -p ${port}:80 ${DOCKER_IMAGE}"
+                    echo "New container deployed on port: ${port}"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Optionally clean up any dangling images
+            script {
+                sh "docker image prune -f"
+            }
+        }
+    }
+}
